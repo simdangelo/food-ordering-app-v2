@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Application</title>
+    <style>
+        /* Basic CSS styling */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        select, input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="{{ url_for('home') }}">Homepage</a>
+        <h2>Place Order</h2>
+        <form id="orderForm" action="/make_order" method="post">
+            <label for="email">Your Email:</label>
+            <input type="text" id="email" name="email" required>
+            <label for="phone_number">Your Phone Number:</label>
+            <input type="text" id="phone_number" name="phone_number" required>
+
+            <fieldset>
+                <legend>Menu Items</legend>
+                <div>
+                    <h3>Food</h3>
+                    {% for item_id, name, category in menu_items %}
+                        {% if category != 'Drink' %}
+                            <div>
+                                <input type="checkbox" id="item_{{ item_id }}" value="{{ item_id }}">
+                                <label for="item_{{ item_id }}">{{ name }}</label>
+                                <input type="number" id="quantity_{{ item_id }}" value="0" min="1">
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                <div>
+                    <h3>Drink</h3>
+                    {% for item_id, name, category in menu_items %}
+                        {% if category == 'Drink' %}
+                            <div>
+                                <input type="checkbox" id="item_{{ item_id }}" value="{{ item_id }}">
+                                <label for="item_{{ item_id }}">{{ name }}</label>
+                                <input type="number" id="quantity_{{ item_id }}" value="0" min="1">
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <label for="city">Select your city :</label>
+            <select id="city" name="city" required>
+                <option value="Milan">Milan</option>
+                <option value="Rome">Rome</option>
+                <option value="Naples">Naples</option>
+                <option value="Florence">Florence</option>
+                <option value="Palermo">Palermo</option>
+            </select>
+
+            <label for="delivery_instructions">Optional note for the rider:</label>
+            <input type="text" id="delivery_instructions" name="delivery_instructions">
+
+            <button type="button" onclick="submitOrder()">Place Order</button>
+        </form>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        function submitOrder() {
+            var formData = {};
+            var checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(function(checkbox) {
+                if (checkbox.checked) {
+                    var itemId = checkbox.value;
+                    var quantityInput = document.getElementById('quantity_' + itemId);
+                    var quantity = parseInt(quantityInput.value);
+                    formData[itemId] = quantity;
+                }
+            });
+
+            // Assigning the formData object as value to a hidden input field
+            var formDataInput = document.createElement('input');
+            formDataInput.type = 'hidden';
+            formDataInput.name = 'orderData';
+            formDataInput.value = JSON.stringify(formData);
+            document.getElementById('orderForm').appendChild(formDataInput);
+
+            // Submit the form
+            document.getElementById('orderForm').submit();
+        }
+    </script>
+</body>
+
+</html>
+
+
