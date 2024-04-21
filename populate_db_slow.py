@@ -1,33 +1,17 @@
-import time
 import psycopg2
-import psycopg2.pool
 import datetime
 import random
+from common.postgres_connection import create_postgres_connection
 import numpy as np
 
-# Define global variables for database connection and connection pool
-conn_pool = None
-MAX_CONNECTIONS = 10
 
-def create_postgres_connection():
-    global conn_pool
-    if conn_pool is None:
-        conn_pool = psycopg2.pool.SimpleConnectionPool(
-            1, MAX_CONNECTIONS,
-            host='localhost',
-            database='database',
-            user='user',
-            password='password',
-            port=5432
-        )
-    return conn_pool.getconn(), conn_pool
+def create_fake_order():
 
-
-def create_fake_orders(total_iterations):
-    conn, _ = create_postgres_connection()
-    cur = conn.cursor()
-
+    total_iterations = 50000
     for i in range(total_iterations):
+
+        conn, cur = create_postgres_connection()
+
         hour = int(random.gauss(13, 2)) if random.random() < 0.5 else int(random.gauss(20, 2))
         hour %= 24
         minute = random.randint(0, 59)
@@ -38,11 +22,11 @@ def create_fake_orders(total_iterations):
         random_day = start_date + datetime.timedelta(days=random.randint(0, 830))
 
         email = "user_" + str(random.randint(1, 1000)) + "@example.com"
-        phone_number = '+39' + ''.join(str(random.randint(0, 9)) for _ in range(10))
+        phone_number = '+39' + ''.join(str(random.randint(0,9)) for _ in range(10))
 
         order_info = {}
         number_of_items = random.randint(2, 6)
-        for _ in range(number_of_items):
+        for _ in range(1, number_of_items, 1):
             item_id = random.randint(1, 10)
             quantity = random.randint(1, 6)
             order_info[item_id] = quantity
@@ -80,50 +64,53 @@ def create_fake_orders(total_iterations):
                             ON CONFLICT (email) DO NOTHING;
                         """, (order['email'], order['phone_number'], order['city'], order['order_created_timestamp']))
 
-            total_amount = 0
-            order_details = []
+            total_amount = 0  # Initialize total amount
+            order_details = []  # store data details for the current order to store it into Order_Details table
 
+            # order['order_data'] is a dictionary with "item_id" as key and "quantity" as value
             for item_id, quantity in order['order_data'].items():
                 cur.execute("SELECT price FROM food_ordering.menu_items WHERE item_id = %s", (item_id,))
                 cost = cur.fetchone()[0]
-                subtotal = cost * quantity
-                total_amount += subtotal
+                subtotal = cost * quantity  # cost of each specific item
+                total_amount = total_amount + (cost * quantity)  # cost of the entire order
+
+                # Append order details of each specific item of this order -> 2 item in the order means 2 elements in this list
                 order_details.append((item_id, quantity, subtotal))
 
+            # Inserting data into ORDERS table (1 row per order)
             cur.execute("""
-                            INSERT INTO food_ordering.orders (user_id, order_created_timestamp, total_amount, status, delivery_city, delivery_instructions)
-                            VALUES ((SELECT user_id FROM food_ordering.users WHERE email = %s), %s, %s, %s, %s, %s)
-                            RETURNING order_id;
-                            """, (
+                                INSERT INTO food_ordering.orders (user_id, order_created_timestamp, total_amount, status, delivery_city, delivery_instructions)
+                                VALUES ((SELECT user_id FROM food_ordering.users WHERE email = %s), %s, %s, %s, %s, %s)
+                                RETURNING order_id;
+                                """, (
                 order['email'], order['order_created_timestamp'], total_amount, 'pending', order['city'],
                 order.get('delivery_instructions', None)))
 
+            # fetch the order_id of the order just done
             order_id = cur.fetchone()[0]
 
+            # update orders_status to keep track the status changes
             cur.execute("""
-                            INSERT INTO food_ordering.orders_status (order_id, status, rider_id, event_timestamp)
-                            VALUES (%s, %s, %s, %s)
-                            """,
+                                INSERT INTO food_ordering.orders_status (order_id, status, rider_id, event_timestamp)
+                                VALUES (%s, %s, %s, %s)
+                                """,
                         (order_id, 'pending', None, order['order_created_timestamp']))
 
+            # inserting data into ORDER_DETAILS about each item in this order
             cur.executemany("""
-                            INSERT INTO food_ordering.order_details (order_id, item_id, quantity, subtotal)
-                            VALUES (%s, %s, %s, %s);
-                            """,
+                                INSERT INTO food_ordering.order_details (order_id, item_id, quantity, subtotal)
+                                VALUES (%s, %s, %s, %s);
+                                """,
                             [(order_id, item_id, quantity, subtotal) for item_id, quantity, subtotal in order_details])
 
             conn.commit()
 
             print(f"Progress: {i + 1}/{total_iterations}")
+        #     return True
         except psycopg2.Error as e:
             conn.rollback()
             print("Error inserting data:", e)
-    conn_pool.putconn(conn)
 
 
 if __name__ == "__main__":
-    total_iterations = 50000
-    start_time = time.time()
-    create_fake_orders(total_iterations)
-    end_time = time.time()
-    print(f"Time taken: {end_time - start_time} seconds")
+    create_fake_order()

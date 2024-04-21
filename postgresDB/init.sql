@@ -16,6 +16,18 @@ CREATE TABLE IF NOT EXISTS users (
     registration_date DATE DEFAULT CURRENT_DATE
 );
 
+-- Create status table
+CREATE TABLE IF NOT EXISTS status (
+    status_id SERIAL PRIMARY KEY,
+    status_description VARCHAR(50) NOT NULL
+);
+
+-- Insert specific records into the Status table
+INSERT INTO status (status_description) VALUES
+    ('pending'),
+    ('accepted'),
+    ('denied');
+
 ---- Create Riders table
 CREATE TABLE IF NOT EXISTS riders (
     rider_id INTEGER PRIMARY KEY, -- rider_id SERIAL PRIMARY KEY,
@@ -37,14 +49,15 @@ VALUES
 CREATE TABLE IF NOT EXISTS orders (
     order_id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id),
-    order_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     total_amount NUMERIC(10, 2) NOT NULL,
     status VARCHAR(50),
 --    delivery_address TEXT, -- we deal only with city and not address
     delivery_city TEXT,
     delivery_instructions TEXT, -- eventual notes for the rider by the user
-    acceptance_order_timestamp TIMESTAMP,
-    completion_order_timestamp TIMESTAMP,
+    order_created_timestamp TIMESTAMP,
+    order_accepted_timestamp TIMESTAMP,
+    order_denied_timestamp TIMESTAMP,
+    order_completed_timestamp TIMESTAMP,
     rider_id INTEGER REFERENCES riders(rider_id)
 );
 
@@ -54,7 +67,7 @@ CREATE TABLE IF NOT EXISTS orders_status (
     order_id INTEGER REFERENCES orders(order_id),
     status VARCHAR(50),
     rider_id INTEGER REFERENCES riders(rider_id),
-    event_time TIMESTAMP
+    event_timestamp TIMESTAMP
 );
 
 

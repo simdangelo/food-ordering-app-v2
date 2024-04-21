@@ -20,14 +20,14 @@ def yearly_orders(selected_year):
 
     cursor.execute("""
                         SELECT
-                          EXTRACT(MONTH FROM order_timestamp) AS month,
-                          COUNT(*) AS num_orders
-                        FROM food_ordering.orders
-                        WHERE EXTRACT(YEAR FROM order_timestamp) = %s
+                            EXTRACT(MONTH FROM event_timestamp) AS month,
+                            COUNT(*) AS num_orders
+                        FROM food_ordering.orders_status
+                        WHERE status='pending' and EXTRACT(YEAR FROM event_timestamp) = %s
                         GROUP BY
-                          EXTRACT(MONTH FROM order_timestamp)
+                            EXTRACT(MONTH FROM event_timestamp)
                         ORDER BY
-                          month;
+                            month;
                         """, (selected_year,))
     results = cursor.fetchall()
 
@@ -43,14 +43,16 @@ def yearly_revenues(selected_year):
 
     cursor.execute("""
                     SELECT
-                      EXTRACT(MONTH FROM order_timestamp) AS month,
-                      SUM(total_amount) AS num_orders
-                    FROM food_ordering.orders
-                    WHERE EXTRACT(YEAR FROM order_timestamp) = %s
+                        EXTRACT(MONTH FROM a.event_timestamp) AS month,
+                        SUM(b.total_amount) AS num_orders
+                    FROM food_ordering.orders_status a
+                    LEFT JOIN food_ordering.orders b
+                    ON a.order_id = b.order_id
+                    WHERE
+                        a.status='pending' AND 
+                        EXTRACT(YEAR FROM a.event_timestamp) = %s
                     GROUP BY
-                      EXTRACT(MONTH FROM order_timestamp)
-                    ORDER BY
-                      month;
+                        EXTRACT(MONTH FROM a.event_timestamp)
                     """, (selected_year,))
     results = cursor.fetchall()
 
@@ -65,16 +67,16 @@ def region_orders(selected_year):
 
     cursor.execute("""
                     SELECT
-                      EXTRACT(MONTH FROM order_timestamp) AS month,
-                      delivery_city,
-                      COUNT(*) AS num_orders
-                    FROM food_ordering.orders
-                    WHERE EXTRACT(YEAR FROM order_timestamp) = %s
+                        EXTRACT(MONTH FROM event_timestamp) AS month,
+                        delivery_city,
+                        COUNT(*) AS num_orders
+                    FROM food_ordering.orders_status
+                        WHERE EXTRACT(YEAR FROM event_timestamp) = %s
                     GROUP BY
-                      EXTRACT(MONTH FROM order_timestamp),
-                      delivery_city
+                        EXTRACT(MONTH FROM event_timestamp),
+                        delivery_city
                     ORDER BY
-                      month;
+                        month;
                     """, (selected_year,))
     results = cursor.fetchall()
 
@@ -89,7 +91,11 @@ def calculate_min_max_year():
     connection, cursor = create_postgres_connection()
 
     cursor.execute("""
-                    SELECT EXTRACT(YEAR FROM MIN(order_timestamp)), EXTRACT(YEAR FROM MAX(order_timestamp)) from food_ordering.orders
+                    SELECT
+                        EXTRACT(YEAR FROM MIN(event_timestamp)),
+                        EXTRACT(YEAR FROM MAX(event_timestamp))
+                    FROM food_ordering.orders_status
+                        WHERE status='pending'
                     """)
     results = cursor.fetchone()
 

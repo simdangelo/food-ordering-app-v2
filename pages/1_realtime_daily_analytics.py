@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 from common.postgres_connection import create_postgres_connection
+from common.global_variables import N_RIDERS
 
 st.set_page_config(
     page_title='Real-Time Analytics',
@@ -13,30 +14,63 @@ st.set_page_config(
 # dashboard title
 # st.title("Real-Time Food Ordering Dashboard")
 
+def orders_still_active(cursor):
+    cursor.execute(f"""
+            WITH order_status_count AS (
+                SELECT 
+                    order_id,
+                    COUNT(DISTINCT CASE WHEN status = 'denied' THEN rider_id END) AS denied_count,
+                    COUNT(DISTINCT CASE WHEN status = 'accepted' THEN rider_id END) AS accepted_count
+                FROM food_ordering.orders_status
+                WHERE DATE(event_timestamp) = CURRENT_DATE
+                GROUP BY order_id
+            )
+            SELECT COUNT(DISTINCT order_id) AS active_orders
+            FROM order_status_count
+            WHERE accepted_count = 0 AND denied_count < {N_RIDERS};
+            """)
+    pending_orders = cursor.fetchone()[0]
+    return pending_orders
+
 def calculate_daily_kpis():
     connection, cursor = create_postgres_connection()
 
-    cursor.execute("SELECT COUNT(*) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
+    cursor.execute("SELECT COUNT(*) FROM food_ordering.orders_status WHERE  status='pending' and DATE(event_timestamp) = CURRENT_DATE;")
     total_orders = cursor.fetchone()[0]
-    cursor.execute("SELECT count(*) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE and status='accepted';")
-    active_orders = cursor.fetchone()[0]
-    cursor.execute("SELECT SUM(total_amount) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
+
+    active_orders = orders_still_active(cursor)
+
+    cursor.execute("""
+            SELECT 
+                sum(total_amount)
+            FROM food_ordering.orders
+            WHERE DATE(order_created_timestamp) = CURRENT_DATE 
+        """)
     revenues = cursor.fetchone()[0]
+
     cursor.execute("""
     SELECT COUNT(DISTINCT user_id)
         FROM food_ordering.users
         WHERE registration_date = CURRENT_DATE;
     """)
     new_customers = cursor.fetchone()[0]
-    cursor.execute("SELECT MAX(order_timestamp) FROM food_ordering.orders;")
+
+    cursor.execute("SELECT MAX(order_created_timestamp) FROM food_ordering.orders;")
     last_order_time = cursor.fetchone()[0]
 
-    cursor.execute("SELECT cast(avg(EXTRACT(EPOCH FROM (acceptance_order_timestamp - order_timestamp)) / 60) as int) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
+    cursor.execute("""
+        SELECT 
+            CAST(AVG(EXTRACT(EPOCH FROM (a.event_timestamp - b.event_timestamp)) / 60) AS INT) AS avg_minutes
+        FROM food_ordering.orders_status a
+        LEFT JOIN food_ordering.orders_status b ON a.order_id=b.order_id
+        WHERE a.status='accepted' and b.status ='pending'
+    """)
     average_acceptance_timestamp = cursor.fetchone()[0]
 
-    cursor.execute(
-        "SELECT cast(avg(EXTRACT(EPOCH FROM (completion_order_timestamp - order_timestamp)) / 60) as int) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
-    average_completion_timestamp = cursor.fetchone()[0]
+    # cursor.execute(
+    #     "SELECT cast(avg(EXTRACT(EPOCH FROM (completion_order_timestamp - order_timestamp)) / 60) as int) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
+    # average_completion_timestamp = cursor.fetchone()[0]
+    average_completion_timestamp = 9999
 
     connection.commit()
     cursor.close()
@@ -53,9 +87,9 @@ def food_category_ratio():
                         , SUM(od.quantity)
                     FROM food_ordering.order_details od
                     JOIN food_ordering.menu_items m ON od.item_id = m.item_id
-                    JOIN food_ordering.orders o ON o.order_id = od.order_id
-                    WHERE m.category != 'Drink'
-                    AND DATE(order_timestamp) = CURRENT_DATE
+                    JOIN food_ordering.orders_status o ON o.order_id = od.order_id
+                    WHERE m.category != 'Drink' and o.status='pending'
+                    AND DATE(o.event_timestamp) = CURRENT_DATE
                     GROUP BY m.category
                 """)
     results = cursor.fetchall()
@@ -75,9 +109,9 @@ def drink_category_ratio():
                         , SUM(od.quantity)
                     FROM food_ordering.order_details od
                     JOIN food_ordering.menu_items m ON od.item_id = m.item_id
-                    JOIN food_ordering.orders o ON o.order_id = od.order_id
-                    WHERE m.category = 'Drink'
-                    AND DATE(order_timestamp) = CURRENT_DATE
+                    JOIN food_ordering.orders_status o ON o.order_id = od.order_id
+                    WHERE m.category = 'Drink' and o.status='pending'
+                    AND DATE(o.event_timestamp) = CURRENT_DATE
                     GROUP BY m.name
                 """)
     results = cursor.fetchall()
@@ -94,7 +128,7 @@ def orders_by_hour():
     cursor.execute("""
                     SELECT
                         time_series AS time_window,
-                        COUNT(orders.order_timestamp) AS num_orders
+                        COUNT(orders_status.event_timestamp) AS num_orders
                     FROM
                         generate_series(
                             DATE_TRUNC('day', CURRENT_TIMESTAMP),
@@ -102,9 +136,11 @@ def orders_by_hour():
                             INTERVAL '15 minutes'
                         ) AS time_series
                     LEFT JOIN
-                        food_ordering.orders
+                        food_ordering.orders_status
                     ON
-                        food_ordering.orders.order_timestamp >= time_series AND food_ordering.orders.order_timestamp < time_series + INTERVAL '15 minutes'
+                        food_ordering.orders_status.event_timestamp >= time_series 
+                        AND food_ordering.orders_status.event_timestamp < time_series + INTERVAL '15 minutes'
+                        AND food_ordering.orders_status.status = 'pending'
                     GROUP BY
                         time_window
                     ORDER BY
@@ -128,9 +164,8 @@ def food_dataframe():
             , SUM(od.subtotal) AS total_revenue
         FROM food_ordering.order_details od
         JOIN food_ordering.menu_items m ON od.item_id = m.item_id
-        JOIN food_ordering.orders o ON o.order_id = od.order_id
-        WHERE m.category != 'Drink'
-        AND DATE(order_timestamp) = CURRENT_DATE
+        JOIN food_ordering.orders_status o ON o.order_id = od.order_id
+        WHERE m.category != 'Drink' AND DATE(o.event_timestamp) = CURRENT_DATE
         GROUP BY m.category
         ORDER BY total_revenue DESC
     """)
@@ -154,9 +189,8 @@ def drink_dataframe():
             , SUM(od.subtotal) AS total_revenue
         FROM food_ordering.order_details od
         JOIN food_ordering.menu_items m ON od.item_id = m.item_id
-        JOIN food_ordering.orders o ON o.order_id = od.order_id
-        WHERE m.category = 'Drink'
-        AND DATE(order_timestamp) = CURRENT_DATE
+        JOIN food_ordering.orders_status o ON o.order_id = od.order_id
+        WHERE m.category = 'Drink' AND DATE(o.event_timestamp) = CURRENT_DATE
         GROUP BY m.name
         ORDER BY total_revenue DESC
     """)
@@ -179,17 +213,14 @@ while True:
 
         total_orders, active_orders, revenues, new_customers, last_order_time, average_acceptance_timestamp, average_completion_timestamp = calculate_daily_kpis()
 
+        st.write("### Orders made by Users")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric(label="Orders today", value=total_orders)
+        kpi1.metric(label="Orders made today", value=total_orders)
         kpi2.metric(label="Total revenue", value=f"$ {revenues} ")
         kpi3.metric(label="New customers today", value=f"{new_customers}")
         kpi4.metric(label="Last order at", value=f"{last_order_time.strftime('%H:%M') if last_order_time else 'No orders yet'}")
 
-        kpi5, kpi6, kpi7, kpi8 = st.columns(4)
-        kpi5.metric(label="Active orders", value=active_orders)
-        kpi6.metric(label="Completed orders", value=total_orders - active_orders)
-        kpi7.metric(label="Avg Acceptance time", value=f"{average_acceptance_timestamp} min")
-        kpi8.metric(label="Avg Completion time", value=f"{average_completion_timestamp} min")
+        st.divider()
 
         st.markdown("### Orders by hour")
         results = orders_by_hour()
@@ -204,6 +235,7 @@ while True:
 
         st.plotly_chart(fig, use_container_width=True)
 
+        st.divider()
 
         fig_col1, fig_col2 = st.columns(2)
         with fig_col1:

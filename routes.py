@@ -93,8 +93,8 @@ def ingest_order(order):
         total_amount = 0  # Initialize total amount
         order_details = [] # store data details for the current order to store it into Order_Details table
 
-        # order['order_data'] is a dictionary with "item_id" as key and "quantity" as value
-        for item_id, quantity in order['order_data'].items():
+        # order['order_info'] is a dictionary with "item_id" as key and "quantity" as value
+        for item_id, quantity in order['order_info'].items():
             cur.execute("SELECT price FROM food_ordering.menu_items WHERE item_id = %s", (item_id,))
             cost = cur.fetchone()[0]
             subtotal = cost * quantity # cost of each specific item
@@ -105,15 +105,20 @@ def ingest_order(order):
 
         # Inserting data into ORDERS table (1 row per order)
         cur.execute("""
-                    INSERT INTO food_ordering.orders (user_id, order_timestamp, total_amount, status, delivery_city, delivery_instructions)
-                    VALUES ((SELECT user_id FROM food_ordering.Users WHERE email = %s), %s, %s, %s, %s, %s);
-                    """, (order['email'], order['time'], total_amount, 'pending', order['city'], order.get('delivery_instructions', None)))
+                    INSERT INTO food_ordering.orders (user_id, order_created_timestamp, total_amount, status, delivery_city, delivery_instructions)
+                    VALUES ((SELECT user_id FROM food_ordering.users WHERE email = %s), %s, %s, %s, %s, %s)
+                    RETURNING order_id;
+                    """, (order['email'], order['order_created_timestamp'], total_amount, 'pending', order['city'], order.get('delivery_instructions', None)))
 
         # fetch the order_id of the order just done
-        cur.execute("""
-                SELECT order_id FROM food_ordering.orders ORDER BY order_id DESC;
-            """)
         order_id = cur.fetchone()[0]
+
+        # update orders_status to keep track the status changes
+        cur.execute("""
+                    INSERT INTO food_ordering.orders_status (order_id, status, rider_id, event_timestamp)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (order_id, 'pending', None, order['order_created_timestamp']))
 
         # inserting data into ORDER_DETAILS about each item in this order
         cur.executemany("""
@@ -121,14 +126,8 @@ def ingest_order(order):
                     VALUES (%s, %s, %s, %s);
                     """, [(order_id, item_id, quantity, subtotal) for item_id, quantity, subtotal in order_details])
 
-        # update orders_status table
-        cur.execute("""
-                    INSERT INTO food_ordering.orders_status (order_id, status, event_time)
-                    VALUES (%s, %s, %s);
-                    """, (order_id, 'pending', order['time']))
-
         conn.commit()
-        return True
+        return order_id
     except psycopg2.Error as e:
         conn.rollback()
         print("Error inserting data:", e)
@@ -144,22 +143,24 @@ def make_order():
     if request.method == "POST":
         email = request.form.get("email")
         phone_number = request.form.get("phone_number")
-        order_data = json.loads(request.form.get("orderData"))
+        order_info = json.loads(request.form.get("orderData"))
         city = request.form.get("city")
         delivery_instructions = request.form.get("delivery_instructions")
 
-        if email and phone_number and order_data and city:
+        if email and phone_number and order_info and city:
             order = {
                 "email": email,
                 "phone_number": phone_number,
-                "order_data": order_data,
+                "order_info": order_info,
                 "city": city,
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "order_created_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "delivery_instructions": delivery_instructions,
             }
 
             # Ingest order data into tables
-            if ingest_order(order):
+            order_id = ingest_order(order)
+            if order_id:
+                order["order_id"] = order_id
                 producer.send(
                     ORDERS_KAFKA_TOPIC,
                     json.dumps(order).encode("utf-8")
