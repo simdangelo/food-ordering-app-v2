@@ -22,12 +22,6 @@ CREATE TABLE IF NOT EXISTS status (
     status_description VARCHAR(50) NOT NULL
 );
 
--- Insert specific records into the Status table
-INSERT INTO status (status_description) VALUES
-    ('pending'),
-    ('accepted'),
-    ('denied');
-
 ---- Create Riders table
 CREATE TABLE IF NOT EXISTS riders (
     rider_id INTEGER PRIMARY KEY, -- rider_id SERIAL PRIMARY KEY,

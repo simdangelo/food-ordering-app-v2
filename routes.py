@@ -4,6 +4,7 @@ import psycopg2
 import json
 from kafka import KafkaProducer
 from common.kafka_topic import ORDERS_KAFKA_TOPIC
+from common.postgres_connection import create_postgres_connection
 
 
 app = Flask(__name__)
@@ -13,17 +14,6 @@ app = Flask(__name__)
 producer = KafkaProducer(bootstrap_servers="localhost:29092")
 
 app.secret_key = 'your_secret_key'
-
-def postgres_connection():
-    conn = psycopg2.connect(
-        host='localhost',
-        database='database',
-        user='user',
-        password='password',
-        port=5432
-    )
-    cursor = conn.cursor()
-    return conn, cursor
 
 @app.route("/")
 def home():
@@ -37,7 +27,7 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        conn, cur = postgres_connection()
+        conn, cur = create_postgres_connection()
         cur.execute("SELECT rider_id, name FROM food_ordering.riders WHERE name = %s AND password = %s", (username, password))
         rider_info = cur.fetchone()  # Fetch both rider_id and rider_name
         cur.close()
@@ -55,8 +45,53 @@ def view_orders():
     if 'rider_id' in session:
         rider_id = session['rider_id']
         rider_name = session['rider_name']
-        conn, cur = postgres_connection()
-        cur.execute("SELECT * FROM food_ordering.orders WHERE rider_id = %s ORDER BY order_timestamp ASC LIMIT 20;", (rider_id,))
+        conn, cur = create_postgres_connection()
+        cur.execute("""
+            SELECT
+                a.order_id,
+                a.rider_id,
+                a.status,
+                b.event_timestamp AS order_creation_timestamp,
+                CASE
+                    WHEN a.status = 'accepted' THEN a.event_timestamp
+                    ELSE (
+                        SELECT 
+                            a_accepted.event_timestamp
+                        FROM 
+                            food_ordering.orders_status a_accepted
+                        WHERE 
+                            a_accepted.order_id = a.order_id
+                            AND a_accepted.status = 'accepted'
+                    )
+                END AS order_acceptance_timestamp,
+                CASE
+                    WHEN a.status = 'completed' THEN a.event_timestamp
+                    ELSE NULL
+                END AS order_completion_timestamp,
+                c.total_amount
+            FROM 
+                food_ordering.orders_status a
+            LEFT JOIN 
+                food_ordering.orders_status b ON a.order_id = b.order_id
+            LEFT JOIN 
+                food_ordering.orders c ON a.order_id = c.order_id
+            WHERE 
+                a.rider_id = %s
+                AND (a.status = 'accepted' OR a.status = 'completed')
+                AND b.status = 'pending'
+                AND (
+                    a.status = 'completed' OR
+                    (
+                        a.status = 'accepted' AND
+                        NOT EXISTS (
+                            SELECT 1 FROM food_ordering.orders_status 
+                            WHERE order_id = a.order_id AND status = 'completed'
+                        )
+                    )
+                )
+            ORDER BY 
+                order_acceptance_timestamp DESC;
+        """, (rider_id,))
 
         columns = [desc[0] for desc in cur.description]
         assigned_orders = [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -73,7 +108,7 @@ def logout():
     return redirect(url_for('login'))
 
 def get_menu_items():
-    conn, cur = postgres_connection()
+    conn, cur = create_postgres_connection()
     cur.execute("SELECT item_id, name, category FROM food_ordering.Menu_Items")
     menu_items = cur.fetchall()
     cur.close()
@@ -81,7 +116,7 @@ def get_menu_items():
     return menu_items
 
 def ingest_order(order):
-    conn, cur = postgres_connection()
+    conn, cur = create_postgres_connection()
 
     try:
         cur.execute("""
@@ -183,7 +218,7 @@ def order_confirmation():
 
 @app.route("/orders_db")
 def display_orders():
-    conn, cursor = postgres_connection()
+    conn, cursor = create_postgres_connection()
     cursor.execute("SELECT * FROM spark_streams.orders ORDER BY time DESC LIMIT 20;")
 
     columns = [desc[0] for desc in cursor.description]
@@ -195,26 +230,16 @@ def display_orders():
     return render_template('orders_display.html', orders=orders)
 
 
-
-@app.route('/completato', methods=['POST'])
-def ordine_completato():
-    order_id = request.form['orderId']
-    # email_id = request.form['emailId']
-    # producer.send(ORDER_COMPLETED_KAFKA_TOPIC, json.dumps({'order_id': order_id, 'email_id': email_id}).encode('utf-8'))
-    return 'OK'
-
 @app.route('/update_order', methods=['POST'])
 def update_order():
     order_id = str(request.form['orderId'])
-    completion_order_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    rider_id = str(request.form['riderId'])
 
-    conn, cursor = postgres_connection()
-    cursor.execute(
-        """
-        UPDATE food_ordering.orders SET status = 'completed', completion_order_timestamp = %s WHERE order_id = %s;
-        """,
-        (completion_order_timestamp, order_id)
-    )
+    conn, cursor = create_postgres_connection()
+    cursor.execute("""
+                    INSERT INTO food_ordering.orders_status (order_id, status, rider_id, event_timestamp)
+                    VALUES (%s, %s, %s, %s)
+                """, (order_id, "completed", rider_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     cursor.close()
     conn.commit()
     conn.close()

@@ -8,7 +8,7 @@ KAFKA_TOPIC_TEST = "topic_test"
 
 
 #READ COORDINATES FROM GEOJSON
-input_file = open('./data/bus1.json')
+input_file = open('../data/bus1.json')
 json_array = json.load(input_file)
 coordinates = json_array['features'][0]['geometry']['coordinates']
 

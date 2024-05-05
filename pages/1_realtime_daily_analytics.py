@@ -35,48 +35,36 @@ def orders_still_active(cursor):
 def calculate_daily_kpis():
     connection, cursor = create_postgres_connection()
 
-    cursor.execute("SELECT COUNT(*) FROM food_ordering.orders_status WHERE  status='pending' and DATE(event_timestamp) = CURRENT_DATE;")
+    cursor.execute("SELECT COUNT(*) FROM food_ordering.orders_status WHERE status='pending' and DATE(event_timestamp) = CURRENT_DATE;")
     total_orders = cursor.fetchone()[0]
 
     active_orders = orders_still_active(cursor)
 
     cursor.execute("""
             SELECT 
-                sum(total_amount)
-            FROM food_ordering.orders
-            WHERE DATE(order_created_timestamp) = CURRENT_DATE 
+                sum(b.total_amount)
+            FROM food_ordering.orders_status a
+            LEFT JOIN food_ordering.orders b ON a.order_id=b.order_id
+            WHERE a.status='pending'
+            AND DATE(a.event_timestamp) = CURRENT_DATE 
         """)
     revenues = cursor.fetchone()[0]
 
     cursor.execute("""
-    SELECT COUNT(DISTINCT user_id)
-        FROM food_ordering.users
-        WHERE registration_date = CURRENT_DATE;
-    """)
+        SELECT COUNT(DISTINCT user_id)
+            FROM food_ordering.users
+            WHERE registration_date = CURRENT_DATE;
+        """)
     new_customers = cursor.fetchone()[0]
 
-    cursor.execute("SELECT MAX(order_created_timestamp) FROM food_ordering.orders;")
+    cursor.execute("SELECT MAX(event_timestamp) FROM food_ordering.orders_status WHERE status='pending';")
     last_order_time = cursor.fetchone()[0]
-
-    cursor.execute("""
-        SELECT 
-            CAST(AVG(EXTRACT(EPOCH FROM (a.event_timestamp - b.event_timestamp)) / 60) AS INT) AS avg_minutes
-        FROM food_ordering.orders_status a
-        LEFT JOIN food_ordering.orders_status b ON a.order_id=b.order_id
-        WHERE a.status='accepted' and b.status ='pending'
-    """)
-    average_acceptance_timestamp = cursor.fetchone()[0]
-
-    # cursor.execute(
-    #     "SELECT cast(avg(EXTRACT(EPOCH FROM (completion_order_timestamp - order_timestamp)) / 60) as int) FROM food_ordering.orders WHERE DATE(order_timestamp) = CURRENT_DATE;")
-    # average_completion_timestamp = cursor.fetchone()[0]
-    average_completion_timestamp = 9999
 
     connection.commit()
     cursor.close()
     connection.close()
 
-    return total_orders, active_orders, revenues, new_customers, last_order_time, average_acceptance_timestamp, average_completion_timestamp
+    return total_orders, active_orders, revenues, new_customers, last_order_time
 
 def food_category_ratio():
     connection, cursor = create_postgres_connection()
@@ -211,7 +199,7 @@ while True:
     with placeholder.container():
         st.write("# Today's Analytics")
 
-        total_orders, active_orders, revenues, new_customers, last_order_time, average_acceptance_timestamp, average_completion_timestamp = calculate_daily_kpis()
+        total_orders, active_orders, revenues, new_customers, last_order_time = calculate_daily_kpis()
 
         st.write("### Orders made by Users")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
