@@ -13,19 +13,23 @@ Now, I'll try to explain each of these sections.
 
 ## Make Orders
 Users can easily place orders through a user-friendly frontend that interacts with the backend via Flask. Here's a glimpse:
+
 ![img_2.png](images/img_2.png)
 
 ## Rider Interaction
 Orders are dispatched to riders' smartphones (simulated through terminals) via Kafka. Each rider can then accept or reject incoming orders:
+
 ![img_3.png](images/img_3.png)
 
 ## Order Completion
 Riders can manage their accepted orders in a private area. After delivering an order, they can mark it as "completed":
+
 ![img_4.png](images/img_4.png)
-*Yeah, `Order Completion Timestamp` is not properly populated. I'll fix as soon as possible.*
+*Yeah, `Order Completion Timestamp` attribute is not properly populated. I'll fix as soon as possible.*
 
 ## Analytics Dashboard
 Shop owners have access to a dashboard (powered by Streamlit) offering insights into various aspects of the order process:
+
 ![img_5.png](images/img_5.png)
 ![img_6.png](images/img_6.png)
 ![img_7.png](images/img_7.png)
@@ -40,8 +44,9 @@ Shop owners have access to a dashboard (powered by Streamlit) offering insights 
 
 # Relational Schema
 Here's the schema representing the database structure:
+
 ![table_schema.png](images/table_schema.png)
-*Yeah, `status* is an old
+*Yeah, this image contains an accuracy: `status` is an old table I forgot to delete. I'll fix as soon as possible.*
 
 # Getting Started
 This project is tested on macOS Sonoma 14.3.1 and Python 3.10.
