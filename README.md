@@ -1,4 +1,4 @@
-# Repo Introduction
+# Introduction to the Project
 
 This is my first "big" Data-Engineering project, and it's all about simulating a Food-Ordering App. It all started when I found a cool tutorial on YouTube by "Code with Irtiza" ([link here](https://www.youtube.com/watch?v=qi7uR3ItaOY&ab_channel=CodewithIrtiza)). That tutorial tries to explain how to use Apache Kafka for a simple project. I created a new project ([link here](https://github.com/simdangelo/food-ordering-app-spark-kafka)) starting by that tutorial and I also add new features and functionalities like Spark, Cassandra DB, a frontend section and so on. But, I quickly realized that , as a beginner, diving straight into Spark, Cassandra, and Kafka might be not the best solution for me. Focusing on fundamentals like Databases, Request-Response Architecture, and in general getting familiar with coding was a much better way to start with. So, I decided to take a step back and to create this new repository.
 
@@ -42,8 +42,8 @@ Shop owners have access to a dashboard (powered by Streamlit) offering insights 
 * **Dashboard Creation**: Streamlit.
 * **Frontend Enhancements**: JavaScript (thanks to ChatGPT).
 
-# Relational Schema
-Here's the schema representing the database structure:
+# Database Setup
+Here's the **Relational Schema** representing the database structure:
 
 ![table_schema.png](images/table_schema.png)
 *Yeah, this image contains an accuracy: `status` is an old table I forgot to delete. I'll fix as soon as possible.*
